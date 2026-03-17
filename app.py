@@ -3,7 +3,8 @@ import pandas as pd
 import plotly.express as px
 import os
 import requests
-import json
+import base64
+import io
 
 # 设置网页基本配置
 st.set_page_config(page_title="商机加微率每日分析", layout="wide")
@@ -11,39 +12,40 @@ st.title("📈 门店与专家商机加微率分析看板")
 st.markdown("每日上传数据自动进行云端汇总。团队成员可查看趋势并下载全量历史数据。")
 
 # ======================
-# 云端 API 存储配置
+# GitHub API 数据库配置
 # ======================
 try:
-    BIN_ID = st.secrets["JSONBIN_BIN_ID"]
-    API_KEY = st.secrets["JSONBIN_API_KEY"]
-    API_URL = f"https://api.jsonbin.io/v3/b/{BIN_ID}"
+    GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+    GITHUB_REPO = st.secrets["GITHUB_REPO"]
+    FILE_PATH = "historical_data.csv" # 在你的代码仓库里自动建这个文件
+    API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{FILE_PATH}"
+    HEADERS = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
 except Exception:
-    st.error("⚠️ 未在 Streamlit Secrets 中找到云端数据库密钥，请检查配置。")
+    st.error("⚠️ 未在 Streamlit Secrets 中找到 GitHub 密钥配置，请检查。")
     st.stop()
 
-# 定义请求头
-HEADERS_READ = {
-    'X-Master-Key': API_KEY
-}
-HEADERS_WRITE = {
-    'Content-Type': 'application/json',
-    'X-Master-Key': API_KEY
-}
-
-# 1. 启动时从云端 API 获取历史数据
+# 1. 启动时从 GitHub 仓库获取历史数据
 @st.cache_data(ttl=60) # 缓存60秒避免频繁请求
 def load_historical_data():
     try:
-        response = requests.get(API_URL, headers=HEADERS_READ)
-        if response.status_code == 200:
-            records = response.json().get('record', [])
-            if records:
-                return pd.DataFrame(records)
+        res = requests.get(API_URL, headers=HEADERS)
+        if res.status_code == 200:
+            data = res.json()
+            # GitHub 存的文件是 base64 编码的，需要解码
+            content = base64.b64decode(data['content']).decode('utf-8-sig')
+            df = pd.read_csv(io.StringIO(content))
+            return df, data['sha'] # 返回数据和文件的唯一标识符(更新时必须用)
+        elif res.status_code == 404:
+            # 404代表文件还不存在（第一次运行），这是正常的
+            return pd.DataFrame(), None 
     except Exception as e:
-        pass # 静默处理错误，直接返回空表
-    return pd.DataFrame()
+        st.error(f"读取云端历史数据失败: {e}")
+    return pd.DataFrame(), None
 
-historical_df = load_historical_data()
+historical_df, file_sha = load_historical_data()
 
 # ======================
 # 新数据上传与合并
@@ -83,15 +85,27 @@ if uploaded_files:
         else:
             combined_df = new_df
 
-        # 转换为 JSON 并推送到云端 API
-        with st.spinner('正在同步数据到云端数据库...'):
-            data_json = combined_df.to_json(orient='records')
-            push_res = requests.put(API_URL, json=json.loads(data_json), headers=HEADERS_WRITE)
+        # ======================
+        # 推送最新数据到 GitHub 仓库保存
+        # ======================
+        with st.spinner('正在将数据永久归档至 GitHub 仓库...'):
+            # 将表格转为带防乱码的 csv 文本格式
+            csv_content = combined_df.to_csv(index=False).encode('utf-8-sig')
+            encoded_content = base64.b64encode(csv_content).decode('utf-8')
             
-            if push_res.status_code == 200:
+            payload = {
+                "message": "Auto-update historical data via Streamlit",
+                "content": encoded_content
+            }
+            if file_sha: # 如果原来有文件，更新它必须带上原本的 sha 码
+                payload["sha"] = file_sha
+                
+            push_res = requests.put(API_URL, headers=HEADERS, json=payload)
+            
+            if push_res.status_code in [200, 201]:
                 historical_df = combined_df # 更新内存数据用于立即展示
                 st.cache_data.clear()       # 清除旧缓存
-                st.success("✅ 数据已成功分析并持久化存储至云端数据库！")
+                st.success("✅ 数据已成功分析，并作为文件永久保存在你的 GitHub 仓库中！")
             else:
                 st.error(f"❌ 数据同步云端失败！错误码: {push_res.status_code}，详情: {push_res.text}")
 
