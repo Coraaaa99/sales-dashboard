@@ -88,13 +88,12 @@ if uploaded_files:
             data_json = combined_df.to_json(orient='records')
             push_res = requests.put(API_URL, json=json.loads(data_json), headers=HEADERS_WRITE)
             
-            if push_res.status_code == 200:
+           if push_res.status_code == 200:
                 historical_df = combined_df # 更新内存数据用于立即展示
                 st.cache_data.clear()       # 清除旧缓存
                 st.success("✅ 数据已成功分析并持久化存储至云端数据库！")
-           else:
+            else:
                 st.error(f"❌ 数据同步云端失败！错误码: {push_res.status_code}，详情: {push_res.text}")
-
 # ======================
 # 数据可视化与下载功能
 # ======================
