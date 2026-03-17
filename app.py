@@ -50,7 +50,7 @@ historical_df, file_sha = load_historical_data()
 # ======================
 # 新数据上传与合并
 # ======================
-uploaded_files = st.file_uploader("📤 请上传当天的 Excel/CSV 数据报表（以日期命名，如 10月16日.xlsx）", accept_multiple_files=True)
+uploaded_files = st.file_uploader("📤 请上传当天的 Excel/CSV 数据报表（以日期命名，如 2023-10-16.xlsx）", accept_multiple_files=True)
 
 if uploaded_files:
     new_data = []
@@ -61,7 +61,8 @@ if uploaded_files:
             else:
                 df = pd.read_excel(file)
             
-            date_str = os.path.splitext(file.name)[0]
+            # 提取文件名作为日期，并强制转换为纯文本字符串
+            date_str = str(os.path.splitext(file.name)[0])
             df['上传日期'] = date_str
             new_data.append(df)
         except Exception as e:
@@ -77,9 +78,14 @@ if uploaded_files:
         new_df = new_df.dropna(subset=['商机开启专家姓名'])
         new_df['开启商机量'] = pd.to_numeric(new_df['开启商机量'], errors='coerce').fillna(0)
         new_df['加微开启商机量'] = pd.to_numeric(new_df['加微开启商机量'], errors='coerce').fillna(0)
+        
+        # 强制把新数据的日期列转为字符串
+        new_df['上传日期'] = new_df['上传日期'].astype(str)
 
         # 与历史数据合并去重
         if not historical_df.empty:
+            # 同样强制老数据的日期列为字符串，防止拼接时类型不一
+            historical_df['上传日期'] = historical_df['上传日期'].astype(str)
             combined_df = pd.concat([historical_df, new_df], ignore_index=True)
             combined_df = combined_df.drop_duplicates(subset=['上传日期', '商机开启专家工号'], keep='last')
         else:
@@ -113,6 +119,9 @@ if uploaded_files:
 # 数据可视化与下载功能
 # ======================
 if not historical_df.empty:
+    # 🌟 终极防御：在画图和排队前，确保当前要处理的数据日期全都是纯文本
+    historical_df['上传日期'] = historical_df['上传日期'].astype(str)
+    
     st.divider()
     
     csv_data = historical_df.to_csv(index=False).encode('utf-8-sig')
@@ -128,6 +137,8 @@ if not historical_df.empty:
     store_daily = historical_df.groupby(['上传日期', '商机开启专家所属门店'])[['加微开启商机量', '开启商机量']].sum().reset_index()
     store_daily['门店加微率'] = store_daily['加微开启商机量'] / store_daily['开启商机量']
     store_daily['门店加微率'] = store_daily['门店加微率'].fillna(0)
+    
+    # 因为日期已经是统一的文本了，这里排序绝对不会再报错！
     store_daily = store_daily.sort_values(by='上传日期')
 
     fig_store = px.line(store_daily, x='上传日期', y='门店加微率', color='商机开启专家所属门店', markers=True, text='门店加微率')
@@ -145,6 +156,8 @@ if not historical_df.empty:
         expert_daily = store_experts_df.groupby(['上传日期', '商机开启专家姓名'])[['加微开启商机量', '开启商机量']].sum().reset_index()
         expert_daily['专家加微率'] = expert_daily['加微开启商机量'] / expert_daily['开启商机量']
         expert_daily['专家加微率'] = expert_daily['专家加微率'].fillna(0)
+        
+        # 同样安全排序
         expert_daily = expert_daily.sort_values(by='上传日期')
 
         fig_expert = px.line(expert_daily, x='上传日期', y='专家加微率', color='商机开启专家姓名', markers=True)
