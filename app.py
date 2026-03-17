@@ -2,114 +2,142 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
+import requests
+import json
 
 # 设置网页基本配置
 st.set_page_config(page_title="商机加微率每日分析", layout="wide")
 st.title("📈 门店与专家商机加微率分析看板")
-st.markdown("每天上传当日的导出数据，自动生成各门店及专家的日度趋势图。")
+st.markdown("每日上传数据自动进行云端汇总。团队成员可查看趋势并下载全量历史数据。")
 
-# 1. 允许多文件上传（每天的数据作为一个独立文件）
-uploaded_files = st.file_uploader("请上传每日导出的Excel或CSV文件（可一次性多选上传）", accept_multiple_files=True)
+# ======================
+# 云端 API 存储配置
+# ======================
+try:
+    BIN_ID = st.secrets["JSONBIN_BIN_ID"]
+    API_KEY = st.secrets["JSONBIN_API_KEY"]
+    API_URL = f"https://api.jsonbin.io/v3/b/{BIN_ID}"
+except Exception:
+    st.error("⚠️ 未在 Streamlit Secrets 中找到云端数据库密钥，请检查配置。")
+    st.stop()
+
+# 定义请求头
+HEADERS_READ = {
+    'X-Master-Key': API_KEY
+}
+HEADERS_WRITE = {
+    'Content-Type': 'application/json',
+    'X-Master-Key': API_KEY
+}
+
+# 1. 启动时从云端 API 获取历史数据
+@st.cache_data(ttl=60) # 缓存60秒避免频繁请求
+def load_historical_data():
+    try:
+        response = requests.get(API_URL, headers=HEADERS_READ)
+        if response.status_code == 200:
+            records = response.json().get('record', [])
+            if records:
+                return pd.DataFrame(records)
+    except Exception as e:
+        st.error(f"读取云端数据失败: {e}")
+    return pd.DataFrame()
+
+historical_df = load_historical_data()
+
+# ======================
+# 新数据上传与合并
+# ======================
+uploaded_files = st.file_uploader("📤 请上传当天的 Excel/CSV 数据报表（以日期命名，如 10月16日.xlsx）", accept_multiple_files=True)
 
 if uploaded_files:
-    all_data = []
-    
+    new_data = []
     for file in uploaded_files:
-        # 根据文件扩展名读取数据
         try:
             if file.name.endswith('.csv'):
                 df = pd.read_csv(file)
             else:
                 df = pd.read_excel(file)
-                
-            # 从文件名中提取日期（假设你可以把文件命名为“2023-10-01.xlsx”等）
+            
             date_str = os.path.splitext(file.name)[0]
             df['上传日期'] = date_str
-            
-            all_data.append(df)
+            new_data.append(df)
         except Exception as e:
             st.error(f"读取文件 {file.name} 失败: {e}")
 
-    if all_data:
-        # 合并所有文件的数据
-        full_df = pd.concat(all_data, ignore_index=True)
+    if new_data:
+        new_df = pd.concat(new_data, ignore_index=True)
         
-        # ======================
         # 数据清洗处理
-        # ======================
-        # 1. 剔除第一行可能包含的“合计”行
-        full_df = full_df[full_df['商机开启专家所属大区'] != '合计']
-        
-        # 2. 解决合并单元格造成的空值问题：向下填充大区、销售部、门店等列
+        new_df = new_df[new_df['商机开启专家所属大区'] != '合计']
         fill_cols = ['商机开启专家所属大区', '商机开启专家所属销售部', '商机开启归属经营单元部门名称', '商机开启专家所属门店']
-        # 注意：pandas 2.0+ 推荐使用 ffill()
-        full_df[fill_cols] = full_df[fill_cols].ffill()
-        
-        # 3. 剔除没有专家的空行
-        full_df = full_df.dropna(subset=['商机开启专家姓名'])
-        
-        # 4. 确保相关的指标列为数值格式
-        full_df['开启商机量'] = pd.to_numeric(full_df['开启商机量'], errors='coerce').fillna(0)
-        full_df['加微开启商机量'] = pd.to_numeric(full_df['加微开启商机量'], errors='coerce').fillna(0)
-        
-        st.divider()
+        new_df[fill_cols] = new_df[fill_cols].ffill()
+        new_df = new_df.dropna(subset=['商机开启专家姓名'])
+        new_df['开启商机量'] = pd.to_numeric(new_df['开启商机量'], errors='coerce').fillna(0)
+        new_df['加微开启商机量'] = pd.to_numeric(new_df['加微开启商机量'], errors='coerce').fillna(0)
 
-        # ======================
-        # 指标 2：每个门店的开启商机加微率趋势
-        # ======================
-        st.header("🏢 每个门店的开启商机加微率")
-        st.markdown("**计算公式**: 门店加微率 = 门店所有专家加微量求和 / 门店所有专家开启量求和")
-        
-        # 按门店和日期进行汇总计算
-        store_daily = full_df.groupby(['上传日期', '商机开启专家所属门店'])[['加微开启商机量', '开启商机量']].sum().reset_index()
-        # 计算加微率
-        store_daily['门店加微率'] = store_daily['加微开启商机量'] / store_daily['开启商机量']
-        store_daily['门店加微率'] = store_daily['门店加微率'].fillna(0)
-        
-        # 绘制交互式折线图
-        fig_store = px.line(store_daily, x='上传日期', y='门店加微率', color='商机开启专家所属门店', 
-                            markers=True, text='门店加微率', title='各门店每日开启商机加微率趋势')
-        fig_store.update_traces(texttemplate='%{text:.1%}', textposition="bottom right")
-        fig_store.update_layout(yaxis_tickformat='.0%')
-        st.plotly_chart(fig_store, use_container_width=True)
-        
-        # 展示数据明细
-        with st.expander("点击查看门店汇总数据明细"):
-            # 整理数据为更易读的百分比格式
-            display_store = store_daily.copy()
-            display_store['门店加微率'] = display_store['门店加微率'].apply(lambda x: f"{x:.2%}")
-            st.dataframe(display_store, use_container_width=True)
+        # 与历史数据合并去重
+        if not historical_df.empty:
+            combined_df = pd.concat([historical_df, new_df], ignore_index=True)
+            combined_df = combined_df.drop_duplicates(subset=['上传日期', '商机开启专家工号'], keep='last')
+        else:
+            combined_df = new_df
 
-        st.divider()
+        # 转换为 JSON 并推送到云端 API
+        with st.spinner('正在同步数据到云端数据库...'):
+            data_json = combined_df.to_json(orient='records')
+            push_res = requests.put(API_URL, json=json.loads(data_json), headers=HEADERS_WRITE)
+            
+            if push_res.status_code == 200:
+                historical_df = combined_df # 更新内存数据用于立即展示
+                st.cache_data.clear()       # 清除旧缓存
+                st.success("✅ 数据已成功分析并持久化存储至云端数据库！")
+            else:
+                st.error("❌ 数据同步云端失败，请稍后重试。")
 
-        # ======================
-        # 指标 1：分门店每个专家开启商机加微率的日度趋势
-        # ======================
-        st.header("🧑‍💼 专家开启商机加微率日度趋势")
-        
-        # 增加交互组件：让用户选择具体要查看的门店
-        all_stores = sorted(full_df['商机开启专家所属门店'].unique().tolist())
-        selected_store = st.selectbox("请选择要查看的门店", options=all_stores)
-        
-        if selected_store:
-            # 过滤出选中门店的专家数据
-            store_experts_df = full_df[full_df['商机开启专家所属门店'] == selected_store].copy()
-            
-            # 汇总日度数据（防重名/冗余）
-            expert_daily = store_experts_df.groupby(['上传日期', '商机开启专家姓名'])[['加微开启商机量', '开启商机量']].sum().reset_index()
-            expert_daily['专家加微率'] = expert_daily['加微开启商机量'] / expert_daily['开启商机量']
-            expert_daily['专家加微率'] = expert_daily['专家加微率'].fillna(0)
-            
-            # 绘制图表
-            fig_expert = px.line(expert_daily, x='上传日期', y='专家加微率', color='商机开启专家姓名', 
-                                 markers=True, title=f'【{selected_store}】专家每日开启商机加微率趋势')
-            fig_expert.update_layout(yaxis_tickformat='.0%')
-            st.plotly_chart(fig_expert, use_container_width=True)
-            
-            # 展示专家数据明细
-            with st.expander(f"点击查看【{selected_store}】专家明细数据"):
-                display_expert = expert_daily.copy()
-                display_expert['专家加微率'] = display_expert['专家加微率'].apply(lambda x: f"{x:.2%}")
-                st.dataframe(display_expert, use_container_width=True)
+# ======================
+# 数据可视化与下载功能
+# ======================
+if not historical_df.empty:
+    st.divider()
+    
+    # 🌟 新增：全局明细数据下载按钮
+    # 注意：使用 utf-8-sig 编码，确保导出的 CSV 在 Windows Excel 中打开不会中文乱码
+    csv_data = historical_df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button(
+        label="📥 下载云端完整历史数据明细 (CSV格式)",
+        data=csv_data,
+        file_name="业务加微率_历史汇总明细.csv",
+        mime="text/csv",
+        type="primary"
+    )
+    
+    # 图表绘制模块
+    st.header("🏢 每个门店的开启商机加微率")
+    store_daily = historical_df.groupby(['上传日期', '商机开启专家所属门店'])[['加微开启商机量', '开启商机量']].sum().reset_index()
+    store_daily['门店加微率'] = store_daily['加微开启商机量'] / store_daily['开启商机量']
+    store_daily['门店加微率'] = store_daily['门店加微率'].fillna(0)
+    store_daily = store_daily.sort_values(by='上传日期')
+
+    fig_store = px.line(store_daily, x='上传日期', y='门店加微率', color='商机开启专家所属门店', markers=True, text='门店加微率')
+    fig_store.update_traces(texttemplate='%{text:.1%}', textposition="bottom right")
+    fig_store.update_layout(yaxis_tickformat='.0%')
+    st.plotly_chart(fig_store, use_container_width=True)
+
+    st.divider()
+    st.header("🧑‍💼 专家开启商机加微率日度趋势")
+    all_stores = sorted(historical_df['商机开启专家所属门店'].unique().tolist())
+    selected_store = st.selectbox("请选择要查看的具体门店进行深入分析", options=all_stores)
+    
+    if selected_store:
+        store_experts_df = historical_df[historical_df['商机开启专家所属门店'] == selected_store].copy()
+        expert_daily = store_experts_df.groupby(['上传日期', '商机开启专家姓名'])[['加微开启商机量', '开启商机量']].sum().reset_index()
+        expert_daily['专家加微率'] = expert_daily['加微开启商机量'] / expert_daily['开启商机量']
+        expert_daily['专家加微率'] = expert_daily['专家加微率'].fillna(0)
+        expert_daily = expert_daily.sort_values(by='上传日期')
+
+        fig_expert = px.line(expert_daily, x='上传日期', y='专家加微率', color='商机开启专家姓名', markers=True)
+        fig_expert.update_layout(yaxis_tickformat='.0%')
+        st.plotly_chart(fig_expert, use_container_width=True)
 else:
-    st.info("💡 请在上方上传数据文件以生成可视化报表。为了能够识别日期，建议将每天导出的文件名命名为当天的日期，例如 `2023-10-01.xlsx`、`2023-10-02.csv`")
+    st.info("💡 云端数据库目前为空，请管理员在上方上传今日的报表文件。")
