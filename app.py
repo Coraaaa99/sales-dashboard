@@ -92,8 +92,8 @@ if uploaded_files:
                 historical_df = combined_df # 更新内存数据用于立即展示
                 st.cache_data.clear()       # 清除旧缓存
                 st.success("✅ 数据已成功分析并持久化存储至云端数据库！")
-            else:
-                st.error("❌ 数据同步云端失败，请稍后重试。")
+           else:
+                st.error(f"❌ 数据同步云端失败！错误码: {push_res.status_code}，详情: {push_res.text}")
 
 # ======================
 # 数据可视化与下载功能
