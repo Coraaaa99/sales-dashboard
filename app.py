@@ -40,7 +40,7 @@ def load_historical_data():
             if records:
                 return pd.DataFrame(records)
     except Exception as e:
-        st.error(f"读取云端数据失败: {e}")
+        pass # 静默处理错误，直接返回空表
     return pd.DataFrame()
 
 historical_df = load_historical_data()
@@ -88,20 +88,19 @@ if uploaded_files:
             data_json = combined_df.to_json(orient='records')
             push_res = requests.put(API_URL, json=json.loads(data_json), headers=HEADERS_WRITE)
             
-           if push_res.status_code == 200:
+            if push_res.status_code == 200:
                 historical_df = combined_df # 更新内存数据用于立即展示
                 st.cache_data.clear()       # 清除旧缓存
                 st.success("✅ 数据已成功分析并持久化存储至云端数据库！")
-           else:
+            else:
                 st.error(f"❌ 数据同步云端失败！错误码: {push_res.status_code}，详情: {push_res.text}")
+
 # ======================
 # 数据可视化与下载功能
 # ======================
 if not historical_df.empty:
     st.divider()
     
-    # 🌟 新增：全局明细数据下载按钮
-    # 注意：使用 utf-8-sig 编码，确保导出的 CSV 在 Windows Excel 中打开不会中文乱码
     csv_data = historical_df.to_csv(index=False).encode('utf-8-sig')
     st.download_button(
         label="📥 下载云端完整历史数据明细 (CSV格式)",
@@ -111,7 +110,6 @@ if not historical_df.empty:
         type="primary"
     )
     
-    # 图表绘制模块
     st.header("🏢 每个门店的开启商机加微率")
     store_daily = historical_df.groupby(['上传日期', '商机开启专家所属门店'])[['加微开启商机量', '开启商机量']].sum().reset_index()
     store_daily['门店加微率'] = store_daily['加微开启商机量'] / store_daily['开启商机量']
