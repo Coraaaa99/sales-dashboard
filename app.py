@@ -143,10 +143,8 @@ if not historical_df.empty:
     # ----------------------------
     # 第一部分：门店趋势图及下载
     # ----------------------------
-    # 更新了门店分组的列名
     store_col = '商机首次承接门店部门名称'
     if store_col not in historical_df.columns:
-        # 如果历史数据还是老字段名，做一个安全兼容
         store_col = '商机开启专家所属门店' if '商机开启专家所属门店' in historical_df.columns else None
 
     if store_col:
@@ -169,8 +167,9 @@ if not historical_df.empty:
                 use_container_width=True
             )
 
-        fig_store = px.line(store_daily, x='上传日期', y='门店加微率', color=store_col, markers=True)
-        fig_store.update_traces(hovertemplate='%{y:.1%}')
+        # 门店图表也加上了数据标签
+        fig_store = px.line(store_daily, x='上传日期', y='门店加微率', color=store_col, markers=True, text='门店加微率')
+        fig_store.update_traces(texttemplate='%{text:.1%}', textposition="bottom right", hovertemplate='%{y:.1%}')
         fig_store.update_layout(yaxis_tickformat='.0%', hovermode='x unified')
         st.plotly_chart(fig_store, use_container_width=True)
 
@@ -203,52 +202,45 @@ if not historical_df.empty:
                     use_container_width=True
                 )
 
-            # 专家趋势折线图
-            fig_expert = px.line(expert_daily, x='上传日期', y='专家加微率', color='商机开启专家姓名', markers=True)
-            fig_expert.update_traces(hovertemplate='%{y:.1%}')
+            # 🌟 专家趋势折线图 (已将 text 标签加回，同时保留了 hover 悬停效果)
+            fig_expert = px.line(expert_daily, x='上传日期', y='专家加微率', color='商机开启专家姓名', markers=True, text='专家加微率')
+            fig_expert.update_traces(texttemplate='%{text:.1%}', textposition="bottom right", hovertemplate='%{y:.1%}')
             fig_expert.update_layout(yaxis_tickformat='.0%', hovermode='x unified')
             st.plotly_chart(fig_expert, use_container_width=True)
 
             # ----------------------------
-            # 第三部分：🌟 新增 - 当日专家双轴对比图 🌟
+            # 第三部分：当日专家双轴对比图
             # ----------------------------
-            # 获取当前该门店存在的“最近一天”的日期
             latest_date = expert_daily['上传日期'].max()
             latest_daily_df = expert_daily[expert_daily['上传日期'] == latest_date]
             
             st.subheader(f"📊 【{selected_store}】当日业绩追踪对比 ({latest_date})")
             
-            # 创建带有副Y轴的图表
             fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
             
-            # 添加柱状图：开启商机量
             fig_dual.add_trace(
                 go.Bar(x=latest_daily_df['商机开启专家姓名'], y=latest_daily_df['开启商机量'], name="当日开启商机量", text=latest_daily_df['开启商机量'], textposition='auto'),
                 secondary_y=False,
             )
             
-            # 添加柱状图：加微开启商机量
             fig_dual.add_trace(
                 go.Bar(x=latest_daily_df['商机开启专家姓名'], y=latest_daily_df['加微开启商机量'], name="当日加微商机量", text=latest_daily_df['加微开启商机量'], textposition='auto'),
                 secondary_y=False,
             )
             
-            # 添加折线图：加微率 (放在副Y轴)
             fig_dual.add_trace(
-                go.Scatter(x=latest_daily_df['商机开启专家姓名'], y=latest_daily_df['专家加微率'], name="当日加微率", mode="lines+markers", 
+                go.Scatter(x=latest_daily_df['商机开启专家姓名'], y=latest_daily_df['专家加微率'], name="当日加微率", mode="lines+markers+text", 
+                           text=latest_daily_df['专家加微率'].apply(lambda x: f"{x:.1%}"), textposition="top center",
                            marker=dict(size=10, color='red'), line=dict(color='red', width=3)),
                 secondary_y=True,
             )
             
-            # 设置图表布局
             fig_dual.update_layout(
-                barmode='group', # 柱状图并排显示
+                barmode='group', 
                 hovermode='x unified',
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            # 设置左侧Y轴（数量）
             fig_dual.update_yaxes(title_text="商机绝对值 (单)", secondary_y=False)
-            # 设置右侧Y轴（百分比）
             fig_dual.update_yaxes(title_text="加微率", tickformat=".0%", secondary_y=True)
             
             st.plotly_chart(fig_dual, use_container_width=True)
