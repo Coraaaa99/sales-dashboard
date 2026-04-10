@@ -83,7 +83,6 @@ if admin_pw == ADMIN_PASSWORD:
         if new_data:
             new_df = pd.concat(new_data, ignore_index=True)
             
-            # 使用全新的表头进行数据清洗处理
             if '商机首次承接区域部门名称' in new_df.columns:
                 new_df = new_df[new_df['商机首次承接区域部门名称'] != '合计']
                 
@@ -97,16 +96,13 @@ if admin_pw == ADMIN_PASSWORD:
             
             new_df['上传日期'] = new_df['上传日期'].astype(str)
 
-            # 与历史数据合并去重
             if not historical_df.empty:
                 historical_df['上传日期'] = historical_df['上传日期'].astype(str)
                 combined_df = pd.concat([historical_df, new_df], ignore_index=True)
-                # 【三重防伪锁】
                 combined_df = combined_df.drop_duplicates(subset=['上传日期', '商机首次承接门店部门名称', '商机开启专家姓名'], keep='last')
             else:
                 combined_df = new_df
 
-            # 推送最新数据到 GitHub 仓库保存
             with st.spinner('正在将数据永久归档至 GitHub 仓库...'):
                 csv_content = combined_df.to_csv(index=False).encode('utf-8-sig')
                 encoded_content = base64.b64encode(csv_content).decode('utf-8')
@@ -137,7 +133,6 @@ if not historical_df.empty:
     
     st.divider()
     
-    # 动态获取当前真实的门店列名
     store_col = '商机首次承接门店部门名称'
     if store_col not in historical_df.columns:
         store_col = '商机开启专家所属门店' if '商机开启专家所属门店' in historical_df.columns else None
@@ -148,7 +143,7 @@ if not historical_df.empty:
         store_daily['门店加微率'] = store_daily['门店加微率'].fillna(0)
         store_daily = store_daily.sort_values(by='上传日期')
 
-        tab1, tab2 = st.tabs(["📊 频道一：整体历史趋势", "🚨 频道二：今日异常监控 (平铺版)"])
+        tab1, tab2 = st.tabs(["📊 频道一：整体历史趋势", "🚨 频道二：今日异常监控 (紧凑平铺版)"])
 
         # ==========================================
         # 频道 1：保留完整历史大盘
@@ -174,7 +169,7 @@ if not historical_df.empty:
             st.plotly_chart(fig_store, use_container_width=True)
 
         # ==========================================
-        # 频道 2：“平铺展示”最新一日数据并标红预警
+        # 频道 2：“双列紧凑展示”最新一日数据并标红预警
         # ==========================================
         with tab2:
             latest_date_overall = historical_df['上传日期'].max()
@@ -192,58 +187,63 @@ if not historical_df.empty:
             
             st.divider()
             
-            # 🌟 新增：动态生成快捷跳转目录 🌟
+            # 快捷跳转目录
             st.header(f"🧑‍💼 【{latest_date_overall}】各门店专家业绩追踪雷达")
             st.markdown("🎯 **电梯直达：点击门店名称快速跳转至对应区域**")
             
-            all_stores = sorted(historical_df[store_col].dropna().unique().tolist())
+            all_stores_raw = sorted(historical_df[store_col].dropna().unique().tolist())
             
-            # 生成带背景色的圆角按钮风格链接
+            # 🌟 优化：先筛选出今天有真实数据的有效门店，避免画出空图表
+            valid_stores = []
             toc_links = []
-            for store in all_stores:
-                # 检查该门店今日是否有数据，有数据才生成按钮
+            for store in all_stores_raw:
                 if not historical_df[(historical_df[store_col] == store) & (historical_df['上传日期'] == latest_date_overall)].empty:
+                    valid_stores.append(store)
                     link_html = f'<a href="#{store}" style="display:inline-block; margin:5px; padding:6px 16px; background-color:#e0e5ec; border-radius:20px; text-decoration:none; color:#1f1f1f; font-weight:500; font-size:14px; box-shadow: 1px 1px 3px rgba(0,0,0,0.1);">{store}</a>'
                     toc_links.append(link_html)
             
-            # 渲染目录区域
             st.markdown(f"<div style='margin-bottom: 30px;'>{''.join(toc_links)}</div>", unsafe_allow_html=True)
 
-            # --- 开始平铺各门店图表 ---
-            for store in all_stores:
-                latest_expert_raw = historical_df[(historical_df[store_col] == store) & (historical_df['上传日期'] == latest_date_overall)].copy()
+            # --- 🌟 开始【双列并排】平铺各门店图表 ---
+            # 每次循环步长为 2（即一次拿两家门店出来画）
+            for i in range(0, len(valid_stores), 2):
+                cols = st.columns(2) # 把页面横向切成均匀的两半
                 
-                if latest_expert_raw.empty:
-                    continue
+                # 在这两列里分别填入数据
+                for j in range(2):
+                    if i + j < len(valid_stores): # 防止最后一行只有一家门店时报错
+                        store = valid_stores[i + j]
+                        
+                        # 在对应的列 (cols[0] 或 cols[1]) 里画图
+                        with cols[j]:
+                            st.markdown(f'<div id="{store}"></div>', unsafe_allow_html=True)
+                            st.subheader(f"📍 【{store}】")
+                            
+                            latest_expert_raw = historical_df[(historical_df[store_col] == store) & (historical_df['上传日期'] == latest_date_overall)].copy()
+                            expert_latest = latest_expert_raw.groupby(['商机开启专家姓名'])[['加微开启商机量', '开启商机量']].sum().reset_index()
+                            expert_latest['专家加微率'] = expert_latest['加微开启商机量'] / expert_latest['开启商机量']
+                            expert_latest['专家加微率'] = expert_latest['专家加微率'].fillna(0)
+
+                            # 1. 专家当日双轴图 (缩小图表外边距，适应半屏宽度)
+                            fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
+                            fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['开启商机量'], name="开启量", text=expert_latest['开启商机量'], textposition='auto'), secondary_y=False)
+                            fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['加微开启商机量'], name="加微量", text=expert_latest['加微开启商机量'], textposition='auto'), secondary_y=False)
+                            fig_dual.add_trace(go.Scatter(x=expert_latest['商机开启专家姓名'], y=expert_latest['专家加微率'], name="加微率", mode="lines+markers+text", text=expert_latest['专家加微率'].apply(lambda x: f"{x:.1%}"), textposition="top center", marker=dict(size=8, color='red'), line=dict(color='red', width=3)), secondary_y=True)
+                            
+                            fig_dual.update_layout(barmode='group', hovermode='x unified', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(l=0, r=0, t=30, b=0))
+                            fig_dual.update_yaxes(title_text="单量", secondary_y=False)
+                            fig_dual.update_yaxes(title_text="率", tickformat=".0%", secondary_y=True)
+                            st.plotly_chart(fig_dual, use_container_width=True)
+
+                            # 2. 明细数据表格 (低于30%自动标红，铺开展示)
+                            styler_expert = expert_latest.style.map(
+                                color_red_if_low, subset=['专家加微率']
+                            ).format({'专家加微率': '{:.1%}'})
+                            
+                            st.table(styler_expert)
                 
-                with st.container():
-                    # 🌟 新增：埋入隐形的 HTML 锚点，供目录跳转使用
-                    st.markdown(f'<div id="{store}"></div>', unsafe_allow_html=True)
-                    
-                    st.subheader(f"📍 【{store}】")
-                    
-                    expert_latest = latest_expert_raw.groupby(['商机开启专家姓名'])[['加微开启商机量', '开启商机量']].sum().reset_index()
-                    expert_latest['专家加微率'] = expert_latest['加微开启商机量'] / expert_latest['开启商机量']
-                    expert_latest['专家加微率'] = expert_latest['专家加微率'].fillna(0)
-
-                    # 1. 展示专家当日双轴图
-                    fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
-                    fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['开启商机量'], name="当日开启量", text=expert_latest['开启商机量'], textposition='auto'), secondary_y=False)
-                    fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['加微开启商机量'], name="当日加微量", text=expert_latest['加微开启商机量'], textposition='auto'), secondary_y=False)
-                    fig_dual.add_trace(go.Scatter(x=expert_latest['商机开启专家姓名'], y=expert_latest['专家加微率'], name="当日加微率", mode="lines+markers+text", text=expert_latest['专家加微率'].apply(lambda x: f"{x:.1%}"), textposition="top center", marker=dict(size=10, color='red'), line=dict(color='red', width=3)), secondary_y=True)
-                    fig_dual.update_layout(barmode='group', hovermode='x unified', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(t=30, b=0))
-                    fig_dual.update_yaxes(title_text="绝对值 (单)", secondary_y=False)
-                    fig_dual.update_yaxes(title_text="加微率", tickformat=".0%", secondary_y=True)
-                    st.plotly_chart(fig_dual, use_container_width=True)
-
-                    # 2. 明细数据表格 (低于30%自动标红，完全铺开)
-                    styler_expert = expert_latest.style.map(
-                        color_red_if_low, subset=['专家加微率']
-                    ).format({'专家加微率': '{:.1%}'})
-                    
-                    st.table(styler_expert)
-                    
-                    st.markdown("---")
+                # 每一行（即每两个门店画完后），加一条贯穿屏幕的分割线
+                st.markdown("---")
 
     # 页面最底部保留原始的完整数据下载包
     with st.expander("📂 点击获取底层全量历史数据打包"):
