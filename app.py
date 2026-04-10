@@ -184,7 +184,6 @@ if not historical_df.empty:
             latest_store_df = store_daily[store_daily['上传日期'] == latest_date_overall].copy()
             latest_store_df = latest_store_df.sort_values(by='门店加微率', ascending=False)
             
-            # 🌟 使用 st.table 替代 st.dataframe，让表格完全展开不留滚动条
             styler_store = latest_store_df.style.map(
                 color_red_if_low, subset=['门店加微率']
             ).format({'门店加微率': '{:.1%}'})
@@ -192,10 +191,25 @@ if not historical_df.empty:
             st.table(styler_store)
             
             st.divider()
+            
+            # 🌟 新增：动态生成快捷跳转目录 🌟
             st.header(f"🧑‍💼 【{latest_date_overall}】各门店专家业绩追踪雷达")
+            st.markdown("🎯 **电梯直达：点击门店名称快速跳转至对应区域**")
             
             all_stores = sorted(historical_df[store_col].dropna().unique().tolist())
             
+            # 生成带背景色的圆角按钮风格链接
+            toc_links = []
+            for store in all_stores:
+                # 检查该门店今日是否有数据，有数据才生成按钮
+                if not historical_df[(historical_df[store_col] == store) & (historical_df['上传日期'] == latest_date_overall)].empty:
+                    link_html = f'<a href="#{store}" style="display:inline-block; margin:5px; padding:6px 16px; background-color:#e0e5ec; border-radius:20px; text-decoration:none; color:#1f1f1f; font-weight:500; font-size:14px; box-shadow: 1px 1px 3px rgba(0,0,0,0.1);">{store}</a>'
+                    toc_links.append(link_html)
+            
+            # 渲染目录区域
+            st.markdown(f"<div style='margin-bottom: 30px;'>{''.join(toc_links)}</div>", unsafe_allow_html=True)
+
+            # --- 开始平铺各门店图表 ---
             for store in all_stores:
                 latest_expert_raw = historical_df[(historical_df[store_col] == store) & (historical_df['上传日期'] == latest_date_overall)].copy()
                 
@@ -203,6 +217,9 @@ if not historical_df.empty:
                     continue
                 
                 with st.container():
+                    # 🌟 新增：埋入隐形的 HTML 锚点，供目录跳转使用
+                    st.markdown(f'<div id="{store}"></div>', unsafe_allow_html=True)
+                    
                     st.subheader(f"📍 【{store}】")
                     
                     expert_latest = latest_expert_raw.groupby(['商机开启专家姓名'])[['加微开启商机量', '开启商机量']].sum().reset_index()
