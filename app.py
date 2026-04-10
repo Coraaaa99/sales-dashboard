@@ -10,6 +10,25 @@ import io
 
 # 设置网页基本配置
 st.set_page_config(page_title="商机加微率每日分析", layout="wide")
+
+# ======================
+# 🌟 新增：隐藏默认悬浮菜单和按钮，确保截长图完美无遮挡 🌟
+# ======================
+hide_streamlit_style = """
+<style>
+/* 隐藏顶部的白条导航栏和右上角菜单 */
+header {visibility: hidden;}
+#MainMenu {visibility: hidden;}
+.stDeployButton {display:none;}
+/* 隐藏底部的 Made with Streamlit 水印 */
+footer {visibility: hidden;}
+/* 隐藏右下角的 Manage app 悬浮按钮 */
+.viewerBadge_container {display: none !important;}
+.viewerBadge_link {display: none !important;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 st.title("📈 门店与专家商机加微率分析看板")
 st.markdown("团队成员可随时查看趋势并下载历史数据。仅管理员可上传更新数据。")
 
@@ -187,13 +206,11 @@ if not historical_df.empty:
             
             st.divider()
             
-            # 快捷跳转目录
             st.header(f"🧑‍💼 【{latest_date_overall}】各门店专家业绩追踪雷达")
             st.markdown("🎯 **电梯直达：点击门店名称快速跳转至对应区域**")
             
             all_stores_raw = sorted(historical_df[store_col].dropna().unique().tolist())
             
-            # 🌟 优化：先筛选出今天有真实数据的有效门店，避免画出空图表
             valid_stores = []
             toc_links = []
             for store in all_stores_raw:
@@ -204,17 +221,13 @@ if not historical_df.empty:
             
             st.markdown(f"<div style='margin-bottom: 30px;'>{''.join(toc_links)}</div>", unsafe_allow_html=True)
 
-            # --- 🌟 开始【双列并排】平铺各门店图表 ---
-            # 每次循环步长为 2（即一次拿两家门店出来画）
             for i in range(0, len(valid_stores), 2):
-                cols = st.columns(2) # 把页面横向切成均匀的两半
+                cols = st.columns(2)
                 
-                # 在这两列里分别填入数据
                 for j in range(2):
-                    if i + j < len(valid_stores): # 防止最后一行只有一家门店时报错
+                    if i + j < len(valid_stores):
                         store = valid_stores[i + j]
                         
-                        # 在对应的列 (cols[0] 或 cols[1]) 里画图
                         with cols[j]:
                             st.markdown(f'<div id="{store}"></div>', unsafe_allow_html=True)
                             st.subheader(f"📍 【{store}】")
@@ -224,7 +237,7 @@ if not historical_df.empty:
                             expert_latest['专家加微率'] = expert_latest['加微开启商机量'] / expert_latest['开启商机量']
                             expert_latest['专家加微率'] = expert_latest['专家加微率'].fillna(0)
 
-                            # 1. 专家当日双轴图 (缩小图表外边距，适应半屏宽度)
+                            # 加入 config 参数：隐藏画图工具自带的悬浮菜单栏，保证截图更纯净
                             fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
                             fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['开启商机量'], name="开启量", text=expert_latest['开启商机量'], textposition='auto'), secondary_y=False)
                             fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['加微开启商机量'], name="加微量", text=expert_latest['加微开启商机量'], textposition='auto'), secondary_y=False)
@@ -233,19 +246,16 @@ if not historical_df.empty:
                             fig_dual.update_layout(barmode='group', hovermode='x unified', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(l=0, r=0, t=30, b=0))
                             fig_dual.update_yaxes(title_text="单量", secondary_y=False)
                             fig_dual.update_yaxes(title_text="率", tickformat=".0%", secondary_y=True)
-                            st.plotly_chart(fig_dual, use_container_width=True)
+                            st.plotly_chart(fig_dual, use_container_width=True, config={'displayModeBar': False})
 
-                            # 2. 明细数据表格 (低于30%自动标红，铺开展示)
                             styler_expert = expert_latest.style.map(
                                 color_red_if_low, subset=['专家加微率']
                             ).format({'专家加微率': '{:.1%}'})
                             
                             st.table(styler_expert)
                 
-                # 每一行（即每两个门店画完后），加一条贯穿屏幕的分割线
                 st.markdown("---")
 
-    # 页面最底部保留原始的完整数据下载包
     with st.expander("📂 点击获取底层全量历史数据打包"):
         csv_data = historical_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button(label="📥 一键下载所有原始数据 (CSV)", data=csv_data, file_name="全量历史明细.csv", mime="text/csv")
