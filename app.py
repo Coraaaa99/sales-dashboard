@@ -101,7 +101,7 @@ if admin_pw == ADMIN_PASSWORD:
             if not historical_df.empty:
                 historical_df['上传日期'] = historical_df['上传日期'].astype(str)
                 combined_df = pd.concat([historical_df, new_df], ignore_index=True)
-                # 【三重防伪锁】使用 日期 + 门店 + 姓名 来去重
+                # 【三重防伪锁】
                 combined_df = combined_df.drop_duplicates(subset=['上传日期', '商机首次承接门店部门名称', '商机开启专家姓名'], keep='last')
             else:
                 combined_df = new_df
@@ -142,14 +142,12 @@ if not historical_df.empty:
     if store_col not in historical_df.columns:
         store_col = '商机开启专家所属门店' if '商机开启专家所属门店' in historical_df.columns else None
 
-    # 提前计算好门店总数据
     if store_col:
         store_daily = historical_df.groupby(['上传日期', store_col])[['加微开启商机量', '开启商机量']].sum().reset_index()
         store_daily['门店加微率'] = store_daily['加微开启商机量'] / store_daily['开启商机量']
         store_daily['门店加微率'] = store_daily['门店加微率'].fillna(0)
         store_daily = store_daily.sort_values(by='上传日期')
 
-        # 🌟 创建两个标签页
         tab1, tab2 = st.tabs(["📊 频道一：整体历史趋势", "🚨 频道二：今日异常监控 (平铺版)"])
 
         # ==========================================
@@ -179,21 +177,19 @@ if not historical_df.empty:
         # 频道 2：“平铺展示”最新一日数据并标红预警
         # ==========================================
         with tab2:
-            # 找到数据库里最新的一天
             latest_date_overall = historical_df['上传日期'].max()
             
             st.header(f"📋 【{latest_date_overall}】所有门店数据总表")
             
-            # 过滤出最新一天的门店数据
             latest_store_df = store_daily[store_daily['上传日期'] == latest_date_overall].copy()
             latest_store_df = latest_store_df.sort_values(by='门店加微率', ascending=False)
             
-            # 🌟 修复点：将老版本的 applymap 替换为最新支持的 map
+            # 🌟 使用 st.table 替代 st.dataframe，让表格完全展开不留滚动条
             styler_store = latest_store_df.style.map(
                 color_red_if_low, subset=['门店加微率']
             ).format({'门店加微率': '{:.1%}'})
             
-            st.dataframe(styler_store, use_container_width=True)
+            st.table(styler_store)
             
             st.divider()
             st.header(f"🧑‍💼 【{latest_date_overall}】各门店专家业绩追踪雷达")
@@ -201,10 +197,8 @@ if not historical_df.empty:
             all_stores = sorted(historical_df[store_col].dropna().unique().tolist())
             
             for store in all_stores:
-                # 只过滤该门店最新一天的数据
                 latest_expert_raw = historical_df[(historical_df[store_col] == store) & (historical_df['上传日期'] == latest_date_overall)].copy()
                 
-                # 如果这个门店今天没数据，就跳过不展示
                 if latest_expert_raw.empty:
                     continue
                 
@@ -215,7 +209,7 @@ if not historical_df.empty:
                     expert_latest['专家加微率'] = expert_latest['加微开启商机量'] / expert_latest['开启商机量']
                     expert_latest['专家加微率'] = expert_latest['专家加微率'].fillna(0)
 
-                    # 1. 直接展示专家当日双轴图
+                    # 1. 展示专家当日双轴图
                     fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
                     fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['开启商机量'], name="当日开启量", text=expert_latest['开启商机量'], textposition='auto'), secondary_y=False)
                     fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['加微开启商机量'], name="当日加微量", text=expert_latest['加微开启商机量'], textposition='auto'), secondary_y=False)
@@ -225,13 +219,12 @@ if not historical_df.empty:
                     fig_dual.update_yaxes(title_text="加微率", tickformat=".0%", secondary_y=True)
                     st.plotly_chart(fig_dual, use_container_width=True)
 
-                    # 2. 明细数据表格 (低于30%自动标红)
-                    # 🌟 修复点：将老版本的 applymap 替换为最新支持的 map
+                    # 2. 明细数据表格 (低于30%自动标红，完全铺开)
                     styler_expert = expert_latest.style.map(
                         color_red_if_low, subset=['专家加微率']
                     ).format({'专家加微率': '{:.1%}'})
                     
-                    st.dataframe(styler_expert, use_container_width=True)
+                    st.table(styler_expert)
                     
                     st.markdown("---")
 
