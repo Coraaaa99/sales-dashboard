@@ -12,7 +12,7 @@ import io
 st.set_page_config(page_title="商机加微率每日分析", layout="wide")
 
 # ======================
-# 🌟 新增：隐藏默认悬浮菜单和按钮，确保截长图完美无遮挡 🌟
+# 🌟 隐藏默认悬浮菜单和按钮，确保截长图完美无遮挡 
 # ======================
 hide_streamlit_style = """
 <style>
@@ -165,9 +165,10 @@ if not historical_df.empty:
         tab1, tab2 = st.tabs(["📊 频道一：整体历史趋势", "🚨 频道二：今日异常监控 (紧凑平铺版)"])
 
         # ==========================================
-        # 频道 1：保留完整历史大盘
+        # 频道 1：保留原有的所有完整历史趋势功能（含专家下拉框）
         # ==========================================
         with tab1:
+            # 1. 门店整体历史趋势
             col1, col2 = st.columns([4, 1])
             with col1:
                 st.header("🏢 所有门店开启商机加微率大盘")
@@ -186,6 +187,38 @@ if not historical_df.empty:
             fig_store.update_traces(texttemplate='%{text:.1%}', textposition="bottom right", hovertemplate='%{y:.1%}')
             fig_store.update_layout(yaxis_tickformat='.0%', hovermode='x unified')
             st.plotly_chart(fig_store, use_container_width=True)
+
+            st.divider()
+            
+            # 2. 🌟 恢复：原有的专家历史趋势（下拉框选择）
+            all_stores_history = sorted(historical_df[store_col].dropna().unique().tolist())
+            selected_store = st.selectbox("请选择要查看的具体门店进行深入分析", options=all_stores_history)
+            
+            if selected_store:
+                store_experts_df = historical_df[historical_df[store_col] == selected_store].copy()
+                expert_daily = store_experts_df.groupby(['上传日期', '商机开启专家姓名'])[['加微开启商机量', '开启商机量']].sum().reset_index()
+                expert_daily['专家加微率'] = expert_daily['加微开启商机量'] / expert_daily['开启商机量']
+                expert_daily['专家加微率'] = expert_daily['专家加微率'].fillna(0)
+                expert_daily = expert_daily.sort_values(by='上传日期')
+
+                col3, col4 = st.columns([4, 1])
+                with col3:
+                    st.header(f"🧑‍💼 【{selected_store}】专家开启商机加微率 (历史趋势)")
+                with col4:
+                    st.write("") 
+                    csv_expert = expert_daily.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(
+                        label=f"📥 下载该门店专家数据",
+                        data=csv_expert,
+                        file_name=f"{selected_store}_专家加微率_清洗数据.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+
+                fig_expert = px.line(expert_daily, x='上传日期', y='专家加微率', color='商机开启专家姓名', markers=True, text='专家加微率')
+                fig_expert.update_traces(texttemplate='%{text:.1%}', textposition="bottom right", hovertemplate='%{y:.1%}')
+                fig_expert.update_layout(yaxis_tickformat='.0%', hovermode='x unified')
+                st.plotly_chart(fig_expert, use_container_width=True)
 
         # ==========================================
         # 频道 2：“双列紧凑展示”最新一日数据并标红预警
@@ -237,7 +270,6 @@ if not historical_df.empty:
                             expert_latest['专家加微率'] = expert_latest['加微开启商机量'] / expert_latest['开启商机量']
                             expert_latest['专家加微率'] = expert_latest['专家加微率'].fillna(0)
 
-                            # 加入 config 参数：隐藏画图工具自带的悬浮菜单栏，保证截图更纯净
                             fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
                             fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['开启商机量'], name="开启量", text=expert_latest['开启商机量'], textposition='auto'), secondary_y=False)
                             fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['加微开启商机量'], name="加微量", text=expert_latest['加微开启商机量'], textposition='auto'), secondary_y=False)
