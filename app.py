@@ -188,8 +188,8 @@ if not historical_df.empty:
             latest_store_df = store_daily[store_daily['上传日期'] == latest_date_overall].copy()
             latest_store_df = latest_store_df.sort_values(by='门店加微率', ascending=False)
             
-            # 使用 Pandas Styler 进行格式化和低迷数据标红
-            styler_store = latest_store_df.style.applymap(
+            # 🌟 修复点：将老版本的 applymap 替换为最新支持的 map
+            styler_store = latest_store_df.style.map(
                 color_red_if_low, subset=['门店加微率']
             ).format({'门店加微率': '{:.1%}'})
             
@@ -215,7 +215,7 @@ if not historical_df.empty:
                     expert_latest['专家加微率'] = expert_latest['加微开启商机量'] / expert_latest['开启商机量']
                     expert_latest['专家加微率'] = expert_latest['专家加微率'].fillna(0)
 
-                    # 1. 直接展示专家当日双轴图（去掉了折线图）
+                    # 1. 直接展示专家当日双轴图
                     fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
                     fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['开启商机量'], name="当日开启量", text=expert_latest['开启商机量'], textposition='auto'), secondary_y=False)
                     fig_dual.add_trace(go.Bar(x=expert_latest['商机开启专家姓名'], y=expert_latest['加微开启商机量'], name="当日加微量", text=expert_latest['加微开启商机量'], textposition='auto'), secondary_y=False)
@@ -226,7 +226,8 @@ if not historical_df.empty:
                     st.plotly_chart(fig_dual, use_container_width=True)
 
                     # 2. 明细数据表格 (低于30%自动标红)
-                    styler_expert = expert_latest.style.applymap(
+                    # 🌟 修复点：将老版本的 applymap 替换为最新支持的 map
+                    styler_expert = expert_latest.style.map(
                         color_red_if_low, subset=['专家加微率']
                     ).format({'专家加微率': '{:.1%}'})
                     
