@@ -50,8 +50,8 @@ except Exception:
     st.error("⚠️ 未在 Streamlit Secrets 中找到 GitHub 密钥配置，请检查。")
     st.stop()
 
-# 1. 启动时从 GitHub 仓库获取历史数据
-@st.cache_data(ttl=60) 
+# 1. 启动时从 GitHub 仓库获取历史数据 (🌟 已删去 ttl=60，实现永久缓存秒开)
+@st.cache_data 
 def load_historical_data():
     try:
         res = requests.get(API_URL, headers=HEADERS)
@@ -168,7 +168,6 @@ if not historical_df.empty:
         # 频道 1：保留原有的所有完整历史趋势功能（含专家下拉框）
         # ==========================================
         with tab1:
-            # 1. 门店整体历史趋势
             col1, col2 = st.columns([4, 1])
             with col1:
                 st.header("🏢 所有门店开启商机加微率大盘")
@@ -190,7 +189,6 @@ if not historical_df.empty:
 
             st.divider()
             
-            # 2. 🌟 恢复：原有的专家历史趋势（下拉框选择）
             all_stores_history = sorted(historical_df[store_col].dropna().unique().tolist())
             selected_store = st.selectbox("请选择要查看的具体门店进行深入分析", options=all_stores_history)
             
