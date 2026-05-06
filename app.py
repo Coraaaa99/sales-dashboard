@@ -150,6 +150,9 @@ elif admin_pw != "":
 if not historical_df.empty:
     historical_df['上传日期'] = historical_df['上传日期'].astype(str)
     
+    # 🌟 新增：提取月份列，用于后续筛选 (格式如 '2026-03')
+    historical_df['月份'] = historical_df['上传日期'].str.slice(0, 7)
+    
     st.divider()
     
     store_col = '商机首次承接门店部门名称'
@@ -157,6 +160,7 @@ if not historical_df.empty:
         store_col = '商机开启专家所属门店' if '商机开启专家所属门店' in historical_df.columns else None
 
     if store_col:
+        # 计算全局的大盘每日数据（保留原逻辑，以供频道二使用）
         store_daily = historical_df.groupby(['上传日期', store_col])[['加微开启商机量', '开启商机量']].sum().reset_index()
         store_daily['门店加微率'] = store_daily['加微开启商机量'] / store_daily['开启商机量']
         store_daily['门店加微率'] = store_daily['门店加微率'].fillna(0)
@@ -165,61 +169,79 @@ if not historical_df.empty:
         tab1, tab2 = st.tabs(["📊 频道一：整体历史趋势", "🚨 频道二：今日异常监控 (紧凑平铺版)"])
 
         # ==========================================
-        # 频道 1：保留原有的所有完整历史趋势功能（含专家下拉框）
+        # 频道 1：保留原有的所有完整历史趋势功能（含专家下拉框）+ 🌟 月份筛选
         # ==========================================
         with tab1:
+            # 🌟 1. 添加月份选择器
+            available_months = ["全部"] + sorted(historical_df['月份'].unique().tolist(), reverse=True)
+            selected_month = st.selectbox("📅 请选择要查看的月份数据：", options=available_months)
+            
+            # 🌟 2. 根据选择过滤频道一的数据
+            if selected_month == "全部":
+                tab1_store_daily = store_daily.copy()
+                tab1_hist_df = historical_df.copy()
+            else:
+                tab1_store_daily = store_daily[store_daily['上传日期'].str.startswith(selected_month)].copy()
+                tab1_hist_df = historical_df[historical_df['月份'] == selected_month].copy()
+
             col1, col2 = st.columns([4, 1])
             with col1:
                 st.header("🏢 所有门店开启商机加微率大盘")
             with col2:
                 st.write("") 
-                csv_store = store_daily.to_csv(index=False).encode('utf-8-sig')
+                csv_store = tab1_store_daily.to_csv(index=False).encode('utf-8-sig')
                 st.download_button(
                     label="📥 下载门店清洗汇总数据",
                     data=csv_store,
-                    file_name="所有门店加微率_清洗数据.csv",
+                    file_name=f"所有门店加微率_清洗数据_{selected_month}.csv", # 文件名动态加上月份
                     mime="text/csv",
                     use_container_width=True
                 )
 
-            fig_store = px.line(store_daily, x='上传日期', y='门店加微率', color=store_col, markers=True, text='门店加微率')
+            # 🌟 3. 图表使用筛选后的 tab1_store_daily
+            fig_store = px.line(tab1_store_daily, x='上传日期', y='门店加微率', color=store_col, markers=True, text='门店加微率')
             fig_store.update_traces(texttemplate='%{text:.1%}', textposition="bottom right", hovertemplate='%{y:.1%}')
             fig_store.update_layout(yaxis_tickformat='.0%', hovermode='x unified')
             st.plotly_chart(fig_store, use_container_width=True)
 
             st.divider()
             
-            all_stores_history = sorted(historical_df[store_col].dropna().unique().tolist())
-            selected_store = st.selectbox("请选择要查看的具体门店进行深入分析", options=all_stores_history)
+            # 🌟 4. 下拉框和专家图表也使用筛选后的 tab1_hist_df
+            all_stores_history = sorted(tab1_hist_df[store_col].dropna().unique().tolist())
             
-            if selected_store:
-                store_experts_df = historical_df[historical_df[store_col] == selected_store].copy()
-                expert_daily = store_experts_df.groupby(['上传日期', '商机开启专家姓名'])[['加微开启商机量', '开启商机量']].sum().reset_index()
-                expert_daily['专家加微率'] = expert_daily['加微开启商机量'] / expert_daily['开启商机量']
-                expert_daily['专家加微率'] = expert_daily['专家加微率'].fillna(0)
-                expert_daily = expert_daily.sort_values(by='上传日期')
+            if not all_stores_history:
+                st.info("当前选择的月份没有门店数据。")
+            else:
+                selected_store = st.selectbox("请选择要查看的具体门店进行深入分析", options=all_stores_history)
+                
+                if selected_store:
+                    store_experts_df = tab1_hist_df[tab1_hist_df[store_col] == selected_store].copy()
+                    expert_daily = store_experts_df.groupby(['上传日期', '商机开启专家姓名'])[['加微开启商机量', '开启商机量']].sum().reset_index()
+                    expert_daily['专家加微率'] = expert_daily['加微开启商机量'] / expert_daily['开启商机量']
+                    expert_daily['专家加微率'] = expert_daily['专家加微率'].fillna(0)
+                    expert_daily = expert_daily.sort_values(by='上传日期')
 
-                col3, col4 = st.columns([4, 1])
-                with col3:
-                    st.header(f"🧑‍💼 【{selected_store}】专家开启商机加微率 (历史趋势)")
-                with col4:
-                    st.write("") 
-                    csv_expert = expert_daily.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label=f"📥 下载该门店专家数据",
-                        data=csv_expert,
-                        file_name=f"{selected_store}_专家加微率_清洗数据.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
+                    col3, col4 = st.columns([4, 1])
+                    with col3:
+                        st.header(f"🧑‍💼 【{selected_store}】专家开启商机加微率 (历史趋势)")
+                    with col4:
+                        st.write("") 
+                        csv_expert = expert_daily.to_csv(index=False).encode('utf-8-sig')
+                        st.download_button(
+                            label=f"📥 下载该门店专家数据",
+                            data=csv_expert,
+                            file_name=f"{selected_store}_专家加微率_{selected_month}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
 
-                fig_expert = px.line(expert_daily, x='上传日期', y='专家加微率', color='商机开启专家姓名', markers=True, text='专家加微率')
-                fig_expert.update_traces(texttemplate='%{text:.1%}', textposition="bottom right", hovertemplate='%{y:.1%}')
-                fig_expert.update_layout(yaxis_tickformat='.0%', hovermode='x unified')
-                st.plotly_chart(fig_expert, use_container_width=True)
+                    fig_expert = px.line(expert_daily, x='上传日期', y='专家加微率', color='商机开启专家姓名', markers=True, text='专家加微率')
+                    fig_expert.update_traces(texttemplate='%{text:.1%}', textposition="bottom right", hovertemplate='%{y:.1%}')
+                    fig_expert.update_layout(yaxis_tickformat='.0%', hovermode='x unified')
+                    st.plotly_chart(fig_expert, use_container_width=True)
 
         # ==========================================
-        # 频道 2：“双列紧凑展示”最新一日数据并标红预警
+        # 频道 2：“双列紧凑展示”最新一日数据并标红预警 (不受月份筛选影响)
         # ==========================================
         with tab2:
             latest_date_overall = historical_df['上传日期'].max()
